@@ -23,11 +23,22 @@ class TestPackagingAndCLI(unittest.IsolatedAsyncioTestCase):
 
     def test_cli_parser_scan_subcommand(self) -> None:
         parser = build_parser()
-        args = parser.parse_args(["scan", "-t", "example.com", "-p", "web", "-m", "active"])
+        args = parser.parse_args(["scan", "-t", "example.com", "-p", "web", "-m", "active", "--modules", "dns,http", "-f", "json", "-w", "/tmp/list.txt", "--timeout", "15"])
         assert args.subcommand == "scan"
-        assert args.target == "example.com"
+        assert args.target_flag == "example.com"
         assert args.profile == "web"
         assert args.mode == "active"
+        assert args.modules == "dns,http"
+        assert args.format == "json"
+        assert args.wordlist == "/tmp/list.txt"
+        assert args.timeout == 15.0
+
+    def test_cli_parser_scan_positional_target(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["scan", "example.com", "-p", "quick"])
+        assert args.subcommand == "scan"
+        assert args.target_pos == "example.com"
+        assert args.target_flag is None
 
     def test_cli_parser_tools_check(self) -> None:
         parser = build_parser()

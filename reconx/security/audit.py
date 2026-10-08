@@ -112,7 +112,28 @@ class TargetSecurityValidator:
             except ValueError:
                 raise SecurityViolation(f"Invalid CIDR notation target: '{target}'")
 
-        # Case C: Single host or IP
+        # Case C: Host with port (e.g., 192.168.18.107:8080 or example.com:8443)
+        if ":" in target and not target.startswith("["):
+            # Check if it's an IPv6 address or host:port
+            try:
+                ipaddress.IPv6Address(target)
+                return
+            except ValueError:
+                pass
+
+            parts = target.rsplit(":", 1)
+            host_part, port_str = parts[0], parts[1]
+            try:
+                port_num = int(port_str)
+                if not (1 <= port_num <= 65535):
+                    raise SecurityViolation(f"Port number out of valid range (1-65535): '{port_str}'")
+            except ValueError:
+                raise SecurityViolation(f"Invalid port in target: '{port_str}'")
+
+            cls._validate_host_or_ip(host_part)
+            return
+
+        # Case D: Single host, IPv4, or IPv6
         cls._validate_host_or_ip(target)
 
     @classmethod

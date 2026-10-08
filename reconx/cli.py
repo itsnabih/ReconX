@@ -73,18 +73,33 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # 2. scan
-    scan_parser = subparsers.add_parser("scan", help="Execute reconnaissance scan against target")
+    scan_parser = subparsers.add_parser(
+        "scan",
+        help="Execute reconnaissance scan against target",
+        description="Run an orchestrated reconnaissance scan against a target domain, URL, or IP.",
+    )
+    scan_parser.add_argument(
+        "target_pos",
+        nargs="?",
+        metavar="TARGET",
+        help="Target domain, URL, or IP address (can also be passed via -t/--target)",
+    )
     scan_parser.add_argument(
         "--target", "-t",
+        dest="target_flag",
         type=str,
-        required=True,
         help="Primary target domain, URL, or IP address",
     )
     scan_parser.add_argument(
         "--profile", "-p",
         type=str,
         default="quick",
-        help="Scan profile name (quick, passive, network, web, full) or YAML path",
+        help="Scan profile name (quick, passive, network, web, full) or YAML path (default: quick)",
+    )
+    scan_parser.add_argument(
+        "--modules",
+        type=str,
+        help="Comma-separated modules to run (e.g. dns,network,http,tls,directory,nikto,sqlmap)",
     )
     scan_parser.add_argument(
         "--mode", "-m",
@@ -95,18 +110,34 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-dir", "-o",
         type=str,
         default="reports",
-        help="Directory to save generated reports",
+        help="Directory to save generated reports (default: reports)",
     )
     scan_parser.add_argument(
-        "--db",
+        "--format", "-f",
         type=str,
-        default="reconx.db",
-        help="Path to SQLite session database",
+        default="all",
+        help="Report export format: json, markdown, html, pdf, or all (default: all)",
+    )
+    scan_parser.add_argument(
+        "--timeout",
+        type=float,
+        help="Default task execution timeout in seconds",
     )
     scan_parser.add_argument(
         "--concurrency", "-c",
         type=int,
         help="Override global execution concurrency",
+    )
+    scan_parser.add_argument(
+        "--wordlist", "-w",
+        type=str,
+        help="Path to custom wordlist for discovery/directory modules",
+    )
+    scan_parser.add_argument(
+        "--db",
+        type=str,
+        default="reconx.db",
+        help="Path to SQLite session database (default: reconx.db)",
     )
 
     # 3. session list / resume
@@ -201,7 +232,12 @@ async def cmd_session_resume(args: argparse.Namespace) -> int:
 
 async def cmd_scan(args: argparse.Namespace) -> int:
     """Execute 'reconx scan'."""
-    target = args.target.strip()
+    raw_target = getattr(args, "target_flag", None) or getattr(args, "target_pos", None)
+    if not raw_target:
+        print("Error: Target is required. Provide TARGET positional argument or --target/-t flag.", file=sys.stderr)
+        return 2
+
+    target = raw_target.strip()
 
     # 1. Target Security Audit (Section 33)
     try:
@@ -210,10 +246,47 @@ async def cmd_scan(args: argparse.Namespace) -> int:
         print(f"Security Error: Invalid or unsafe target: {exc}", file=sys.stderr)
         return 2
 
+    # Parse normalized host, port, URL, and address classification
+    port_val: int | None = None
+    if target.startswith(("http://", "https://")):
+        parsed_url = urlparse(target)
+        host_target = parsed_url.hostname or target
+        port_val = parsed_url.port
+        url_target = target
+    elif "/" in target:
+        host_target = target
+        url_target = f"http://{target}"
+    elif ":" in target and not target.startswith("["):
+        parts = target.rsplit(":", 1)
+        host_target = parts[0]
+        try:
+            port_val = int(parts[1])
+        except ValueError:
+            pass
+        url_target = f"http://{target}"
+    else:
+        host_target = target
+        url_target = f"http://{target}"
+
+    is_ip = False
+    try:
+        ipaddress.ip_address(host_target)
+        is_ip = True
+    except ValueError:
+        try:
+            ipaddress.ip_network(host_target, strict=False)
+            is_ip = True
+        except ValueError:
+            pass
+
     # 2. Scope Validation (Section 12 - Fail-Closed)
-    scope = ScopeValidator(
-        allowed_domains=(target, f"*.{target}"),
-    )
+    if is_ip:
+        scope = ScopeValidator(allowed_ips=(host_target,))
+        scope_policy = ScopePolicy(allowed_ips=(host_target,))
+    else:
+        scope = ScopeValidator(allowed_domains=(host_target, f"*.{host_target}"))
+        scope_policy = ScopePolicy(allowed_domains=(host_target, f"*.{host_target}"))
+
     decision = scope.check(target)
     if not decision.allowed:
         print(f"Scope Error: Target '{target}' is rejected by scope policy: {decision.detail}", file=sys.stderr)
@@ -221,10 +294,25 @@ async def cmd_scan(args: argparse.Namespace) -> int:
 
     # 3. Load Profile & CLI Overrides (Section 23)
     cli_overrides: dict[str, Any] = {}
-    if args.mode:
+    if getattr(args, "mode", None):
         cli_overrides["mode"] = args.mode
-    if args.concurrency:
+    if getattr(args, "concurrency", None):
         cli_overrides.setdefault("concurrency", {})["global"] = args.concurrency
+    if getattr(args, "timeout", None):
+        cli_overrides["timeout"] = args.timeout
+    if getattr(args, "wordlist", None):
+        cli_overrides.setdefault("wordlists", {})["directory"] = args.wordlist
+    if getattr(args, "modules", None):
+        mods = [m.strip().lower() for m in args.modules.split(",") if m.strip()]
+        cli_overrides["modules"] = {
+            "dns": "dns" in mods,
+            "network": "network" in mods,
+            "http": "http" in mods,
+            "tls": "tls" in mods,
+            "directory": "directory" in mods,
+            "nikto": "nikto" in mods,
+            "sqlmap": "sqlmap" in mods,
+        }
 
     try:
         profile = ProfileLoader.load(name_or_path=args.profile, cli_overrides=cli_overrides)
@@ -240,7 +328,7 @@ async def cmd_scan(args: argparse.Namespace) -> int:
     manager = ScanSessionManager(db_path)
     state = manager.create_session(
         targets=[target],
-        scope=ScopePolicy(allowed_domains=(target, f"*.{target}")),
+        scope=scope_policy,
     )
     state.scan.status = ScanStatus.RUNNING
     state.scan.started_at = datetime.now(timezone.utc)
@@ -258,18 +346,118 @@ async def cmd_scan(args: argparse.Namespace) -> int:
     )
 
     registry = get_default_registry()
-    if profile.is_module_enabled("dns"):
+
+    # Module: DNS (only relevant for domain names, not raw IPs)
+    if profile.is_module_enabled("dns") and not is_ip:
         for tool_name in ("dig", "host", "nslookup", "whois"):
             adapter = registry.get(tool_name)
             if adapter and adapter.check_available():
                 task = adapter.create_task(
-                    task_id=f"dns_{tool_name}_{target}",
-                    target=target,
+                    task_id=f"dns_{tool_name}_{host_target}",
+                    target=host_target,
                     priority=10,
                 )
                 task.action = None  # Ensure serializable for SQLite persistence
                 scheduler.add_task(task)
                 state.tasks.append(task)
+
+    # Module: Network (ping, nmap - uses host_target or port override)
+    if profile.is_module_enabled("network"):
+        ping_adapter = registry.get("ping")
+        if ping_adapter and ping_adapter.check_available():
+            task = ping_adapter.create_task(
+                task_id=f"net_ping_{host_target}",
+                target=host_target,
+                priority=20,
+            )
+            task.action = None
+            scheduler.add_task(task)
+            state.tasks.append(task)
+
+        nmap_adapter = registry.get("nmap")
+        if nmap_adapter and nmap_adapter.check_available():
+            nmap_kwargs = {}
+            if port_val:
+                nmap_kwargs["ports"] = str(port_val)
+            task = nmap_adapter.create_task(
+                task_id=f"net_nmap_{host_target}",
+                target=host_target,
+                priority=20,
+                **nmap_kwargs,
+            )
+            task.action = None
+            scheduler.add_task(task)
+            state.tasks.append(task)
+
+    # Module: HTTP & TLS (uses full URL or web host)
+    if profile.is_module_enabled("http"):
+        for tool_name in ("curl", "wget"):
+            adapter = registry.get(tool_name)
+            if adapter and adapter.check_available():
+                task = adapter.create_task(
+                    task_id=f"http_{tool_name}_{host_target}",
+                    target=url_target,
+                    priority=30,
+                )
+                task.action = None
+                scheduler.add_task(task)
+                state.tasks.append(task)
+
+    if profile.is_module_enabled("tls"):
+        adapter = registry.get("openssl")
+        if adapter and adapter.check_available():
+            task = adapter.create_task(
+                task_id=f"tls_openssl_{host_target}",
+                target=f"{host_target}:{port_val or 443}",
+                priority=35,
+            )
+            task.action = None
+            scheduler.add_task(task)
+            state.tasks.append(task)
+
+    # Module: Directory enumeration (requires full web URL)
+    if profile.is_module_enabled("directory"):
+        for tool_name in ("gobuster", "ffuf", "dirb"):
+            adapter = registry.get(tool_name)
+            if adapter and adapter.check_available():
+                task = adapter.create_task(
+                    task_id=f"dir_{tool_name}_{host_target}",
+                    target=url_target,
+                    priority=40,
+                )
+                task.action = None
+                scheduler.add_task(task)
+                state.tasks.append(task)
+
+    # Module: Nikto
+    if profile.is_module_enabled("nikto"):
+        adapter = registry.get("nikto")
+        if adapter and adapter.check_available():
+            nikto_kwargs = {}
+            if port_val:
+                nikto_kwargs["port"] = port_val
+            task = adapter.create_task(
+                task_id=f"vuln_nikto_{host_target}",
+                target=host_target,
+                priority=50,
+                **nikto_kwargs,
+            )
+            task.action = None
+            scheduler.add_task(task)
+            state.tasks.append(task)
+
+    # Module: Sqlmap
+    if profile.is_module_enabled("sqlmap"):
+        adapter = registry.get("sqlmap")
+        if adapter and adapter.check_available():
+            task = adapter.create_task(
+                task_id=f"vuln_sqlmap_{host_target}",
+                target=url_target,
+                priority=60,
+            )
+            task.action = None
+            scheduler.add_task(task)
+            state.tasks.append(task)
 
     # Checkpoint initial tasks
     manager.save_session(state)
@@ -291,12 +479,18 @@ async def cmd_scan(args: argparse.Namespace) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     engine = ReportingEngine()
     report_model = ReportModel.from_scan_state(state)
-    paths = {
-        "json": engine.export(report_model, out_dir / "report.json"),
-        "markdown": engine.export(report_model, out_dir / "report.md"),
-        "html": engine.export(report_model, out_dir / "report.html"),
-        "pdf": engine.export(report_model, out_dir / "report.pdf"),
-    }
+
+    fmt_choice = getattr(args, "format", "all").lower()
+    paths: dict[str, Path] = {}
+    if fmt_choice in ("all", "json"):
+        paths["json"] = engine.export(report_model, out_dir / "report.json")
+    if fmt_choice in ("all", "markdown", "md"):
+        paths["markdown"] = engine.export(report_model, out_dir / "report.md")
+    if fmt_choice in ("all", "html"):
+        paths["html"] = engine.export(report_model, out_dir / "report.html")
+    if fmt_choice in ("all", "pdf"):
+        paths["pdf"] = engine.export(report_model, out_dir / "report.pdf")
+
     print(f"[+] Reports generated in '{out_dir}':")
     for fmt, p in paths.items():
         print(f"    - {fmt.upper()}: {p}")

@@ -23,29 +23,34 @@ reconx [-h] [--version] [-v] <subcommand> [options]
 Executes an end-to-end reconnaissance and security assessment against a target.
 
 ```bash
-reconx scan --target <TARGET> [OPTIONS]
+reconx scan [TARGET] [-t <TARGET>] [OPTIONS]
 ```
 
 #### Arguments:
-| Flag | Short | Type | Default | Description |
+| Flag / Arg | Short | Type | Default | Description |
 |---|---|---|---|---|
-| `--target` | `-t` | String | *Required* | Target domain, IP, CIDR, or URL. |
-| `--profile` | `-p` | String | `quick` | Profile name (`quick`, `passive`, `network`, `web`, `full`) or path to a custom YAML profile. |
-| `--mode` | `-m` | String | Profile default | Scan aggressiveness mode: `safe`, `passive`, or `active`. |
-| `--output-dir` | `-o` | Path | `reports/` | Directory where JSON, Markdown, HTML, and PDF reports are stored. |
-| `--db` | - | Path | `reconx.db` | SQLite database file used for session snapshots and persistence. |
+| `TARGET` | - | Positional | Optional | Target domain, IP, CIDR, or URL (can be given as positional argument). |
+| `--target` | `-t` | String | Optional | Primary target (can also be passed via positional argument). |
+| `--profile` | `-p` | String | `quick` | Profile name (`quick`, `passive`, `network`, `web`, `full`) or path to custom YAML. |
+| `--modules` | - | String | Profile default | Comma-separated modules (`dns,network,http,tls,directory,nikto,sqlmap`). |
+| `--mode` | `-m` | String | Profile default | Scan mode: `safe`, `passive`, or `active`. |
+| `--format` | `-f` | String | `all` | Report export format (`json`, `markdown`, `html`, `pdf`, `all`). |
+| `--output-dir` | `-o` | Path | `reports/` | Directory where generated reports are stored. |
+| `--timeout` | - | Float | Profile default | Default task timeout in seconds. |
 | `--concurrency`| `-c` | Integer | Profile default | Override global concurrent task limit. |
+| `--wordlist` | `-w` | Path | None | Custom wordlist for directory/discovery tools. |
+| `--db` | - | Path | `reconx.db` | SQLite database file used for session snapshots and persistence. |
 
 #### Examples:
 ```bash
-# Quick scan with default settings
-reconx scan -t example.com
+# Scan target using positional argument with default profile
+reconx scan http://192.168.18.107:8080
 
-# Passive scan without active port probing
-reconx scan -t example.com -p passive
+# Web audit with custom format and concurrency
+reconx scan http://192.168.18.107:8080 -p web -f markdown -c 12
 
-# Full scan with custom concurrency and output folder
-reconx scan -t example.com -p full -c 15 -o /tmp/recon_reports/
+# Explicit modules scan
+reconx scan -t example.com --modules http,tls,nikto -o /tmp/recon_reports/
 ```
 
 ---
