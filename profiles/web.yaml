@@ -1,0 +1,32 @@
+name: web
+description: Web application footprinting, directory enumeration, and web vulnerability scanning
+mode: active
+
+modules:
+  dns: true
+  network: false
+  http: true
+  tls: true
+  directory: true
+  nikto: true
+  sqlmap: false
+
+concurrency:
+  global: 12
+  dns: 6
+  network: 2
+  http: 10
+  discovery: 6
+  vulnerability: 2
+  default: 8
+
+timeouts:
+  default: 30.0
+  dns: 10.0
+  http: 20.0
+  directory: 60.0
+  nikto: 120.0
+
+wordlists:
+  subdomains: ""
+  directory: ""

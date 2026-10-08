@@ -1,0 +1,31 @@
+name: quick
+description: Fast reconnaissance with essential DNS and network discovery and low timeouts
+mode: active
+
+modules:
+  dns: true
+  network: true
+  http: true
+  tls: false
+  directory: false
+  nikto: false
+  sqlmap: false
+
+concurrency:
+  global: 15
+  dns: 10
+  network: 5
+  http: 10
+  discovery: 6
+  vulnerability: 2
+  default: 10
+
+timeouts:
+  default: 10.0
+  dns: 5.0
+  network: 15.0
+  http: 10.0
+
+wordlists:
+  subdomains: ""
+  directory: ""

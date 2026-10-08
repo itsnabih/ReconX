@@ -1,0 +1,30 @@
+name: network
+description: Network infrastructure mapping and port/service discovery
+mode: active
+
+modules:
+  dns: true
+  network: true
+  http: false
+  tls: false
+  directory: false
+  nikto: false
+  sqlmap: false
+
+concurrency:
+  global: 10
+  dns: 8
+  network: 6
+  http: 4
+  discovery: 4
+  vulnerability: 2
+  default: 8
+
+timeouts:
+  default: 30.0
+  dns: 10.0
+  network: 60.0
+
+wordlists:
+  subdomains: ""
+  directory: ""

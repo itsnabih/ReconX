@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reconx"
+version = "0.1.0"
+description = "Production-oriented CLI reconnaissance and VAPT orchestration framework"
+readme = "README.md"
+authors = [{ name = "ReconX Team" }]
+license = { text = "MIT" }
+requires-python = ">=3.12"
+keywords = ["security", "reconnaissance", "vapt", "osint", "cybersecurity"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Information Technology",
+    "Topic :: Security",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+reconx = "reconx.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["reconx*"]
+
+[tool.setuptools.package-data]
+"reconx" = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

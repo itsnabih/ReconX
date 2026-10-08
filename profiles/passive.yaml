@@ -1,0 +1,29 @@
+name: passive
+description: Passive-only reconnaissance (DNS/OSINT) without active port probing
+mode: passive
+
+modules:
+  dns: true
+  network: false
+  http: false
+  tls: false
+  directory: false
+  nikto: false
+  sqlmap: false
+
+concurrency:
+  global: 8
+  dns: 8
+  network: 2
+  http: 4
+  discovery: 4
+  vulnerability: 1
+  default: 8
+
+timeouts:
+  default: 15.0
+  dns: 10.0
+
+wordlists:
+  subdomains: ""
+  directory: ""
